@@ -72,6 +72,7 @@ void main(int argc, char **argv)
 
 //****TASK 1****convert payload into bit stream (or ternary alphabet if you prefer) and unambiguously 
 //**************encode its length********************************************************************
+    
 
   }  
 
@@ -93,7 +94,6 @@ void main(int argc, char **argv)
   jpeg_stdio_src(&cinfo_in, file_in); // libjpeg -- feed cover file handle to libjpeg decompressor
   jpeg_read_header(&cinfo_in, TRUE);  	// libjpeg -- read the compression parameters and 
   component=cinfo_in.comp_info;	     	// first (luma) component information
-
   
   blocks_wide=component->width_in_blocks; //these are very useful (they apply to luma component only)
   blocks_high=component->height_in_blocks;
