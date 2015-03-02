@@ -68,8 +68,6 @@ void main(int argc, char **argv)
 
 //***************************************************************************************************
 
-
-
 //****TASK 1****convert payload into bit stream (or ternary alphabet if you prefer) and unambiguously 
 //**************encode its length********************************************************************
 
