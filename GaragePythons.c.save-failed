@@ -1,0 +1,181 @@
+//*******************ADVANCED SECURITY PRACTICAL ASSIGNMENT 2 - INFORMATION HIDING*******************
+//*************************HILARY TERM 2015******************GaragePythons.c*************************
+
+#include <stdio.h>
+#include <stdlib.h>			// run with -ljpeg; -lcrypto
+#include <string.h>
+#include <jpeglib.h>
+#include <jerror.h>
+#include <openssl/sha.h>
+
+#define EMBED   1	// constants for the embed/extract mode
+#define EXTRACT 2
+
+void main(int argc, char **argv)
+{
+  int mode;	// determines whether we are embedding or extracting
+
+  struct jpeg_decompress_struct cinfo_in;                      // types for libjpeg input object
+  struct jpeg_error_mgr jpegerr_in;
+  jpeg_component_info *component;
+  jvirt_barray_ptr *DCT_blocks;
+
+  struct jpeg_compress_struct cinfo_out;                       // types for libjpeg output object
+  struct jpeg_error_mgr jpegerr_out;
+
+  FILE *file_in;	                                                    // file handles
+  FILE *file_out;     // only used for embedding
+  FILE *file_payload; // only used for embedding
+
+  unsigned long payload_length; 	                                    // to store the payload
+  unsigned char *payload_bytes;
+  unsigned long BUFFSIZE=1024*1024; //1MB hardcoded max payload size, plenty
+
+  char *key;				                      // the key string, and its SHA-1 hash
+  unsigned char *keyhash;
+
+  unsigned long blocks_high, blocks_wide;                         // useful properties of the image
+
+  int block_y, block_x, u, v;					  // for the example code
+
+  if(argc==4 && strcmp(argv[1],"embed")==0)	// parse parameters
+  {
+    mode=EMBED;
+    key=argv[3];
+  }
+  else if(argc==3 && strcmp(argv[1],"extract")==0)
+  {
+    mode=EXTRACT;
+    key=argv[2];
+  }
+  else
+  {
+    fprintf(stderr, "Usage: GaragePythons embed cover.jpg key <payload >stego.jpg\n");
+    fprintf(stderr, "Or     GaragePythons extract key <stego.jpg\n");
+    exit(1);
+  }
+
+  if(mode==EMBED)
+  {
+    if((payload_bytes=malloc(BUFFSIZE))==NULL)		     // read ALL (up to eof, or max buffer
+    {							     // size) of the payload into the buffer
+      fprintf(stderr, "Memory allocation failed!\n");
+      exit(1);
+    }
+    file_payload=stdin;
+    payload_length=fread(payload_bytes, 1, BUFFSIZE, file_payload);
+    fprintf(stderr, "Embedding payload of length %ld bytes...\n", payload_length);
+
+//***************************************************************************************************
+
+
+
+//****TASK 1****convert payload into bit stream (or ternary alphabet if you prefer) and unambiguously
+//**************encode its length********************************************************************
+
+
+  }
+
+  if(mode==EMBED)   // open the input file
+  {
+    if((file_in=fopen(argv[2],"rb"))==NULL)
+    {
+      fprintf(stderr, "Unable to open cover file %s\n", argv[2]);
+      exit(1);
+    }
+  }
+  else if(mode==EXTRACT)
+  {
+    file_in=stdin;
+  }
+
+  cinfo_in.err = jpeg_std_error(&jpegerr_in); // libjpeg -- create decompression object for reading
+  jpeg_create_decompress(&cinfo_in);          //   the input file, using the standard error handler
+  jpeg_stdio_src(&cinfo_in, file_in); // libjpeg -- feed cover file handle to libjpeg decompressor
+  jpeg_read_header(&cinfo_in, TRUE);  	// libjpeg -- read the compression parameters and
+  component=cinfo_in.comp_info;	     	// first (luma) component information
+
+  blocks_wide=component->width_in_blocks; //these are very useful (they apply to luma component only)
+  blocks_high=component->height_in_blocks;
+  // these might also be useful: component->quant_table->quantval[i] gives the quantization factor
+  // 					for code i (i=0..63, scanning the 8x8 modes in row order)
+
+  // libjpeg -- read all the DCT coefficients into a memory structure
+  DCT_blocks=jpeg_read_coefficients(&cinfo_in); //(memory handling is done by library)
+
+  // if embedding, set up the output file (we had to read the input first so
+  //                       that libjpeg can set up an output file with the exact same parameters)
+  if(mode==EMBED)
+  {
+    cinfo_out.err = jpeg_std_error(&jpegerr_out); // libjpeg -- create compression
+    jpeg_create_compress(&cinfo_out);             // object with default error handler
+
+    // libjpeg -- copy all parameters from input to output object
+    jpeg_copy_critical_parameters(&cinfo_in, &cinfo_out);
+
+    file_out=stdout;				  // libjpeg -- feed the stego file handle to
+    jpeg_stdio_dest(&cinfo_out, file_out);	  // the libjpeg compressor
+  }
+
+  // At this point the input has been read, and an output is ready (if embedding)
+  // We can modify the DCT_blocks if we are embedding, or just print the payload if extracting
+
+  if((keyhash=malloc(20))==NULL) // enough space for a 160-bit hash
+  {
+    fprintf(stderr, "Memory allocation failed!\n");
+    exit(1);
+  }
+  SHA1(key, strlen(key), keyhash);
+//***************************************************************************************************
+
+//***TASK 2****use the key to create a pseudorandom order to visit the coefficients******************
+
+
+//***************************************************************************************************
+  if(mode==EMBED)
+  {
+//***TASK 3****embed the payload*********************************************************************
+
+
+    jpeg_write_coefficients(&cinfo_out, DCT_blocks); // libjpeg -- write the coefficient block
+    jpeg_finish_compress(&cinfo_out);
+  }
+  else if(mode==EXTRACT)
+  {
+//***************************************************************************************************
+
+//***TASK 4****extact the payload symbols and reconstruct the original bytes*************************
+
+    // use something likr printf("%s", payload_bytes);
+  }
+//***************************************************************************************************
+
+  // example code: prints out all the DCT blocks to stderr, scanned in row order, but does not
+  // change them (if "embedding", the cover jpeg was also sent unchanged to stdout)
+
+  for (block_y=0; block_y<component->height_in_blocks; block_y++)
+  {
+    for (block_x=0; block_x< component->width_in_blocks; block_x++)
+    {
+      // this is the magic code which accesses block (block_x,block_y) from luma component of image
+      JCOEFPTR block=(cinfo_in.mem->access_virt_barray)((j_common_ptr)&cinfo_in, DCT_blocks[0],
+							block_y, (JDIMENSION)1, FALSE)[0][block_x];
+	//JCOEFPTR can just be used as an array of 64 ints
+      for (u=0; u<8; u++)
+      {
+	for(v=0; v<8; v++)
+        {
+	  fprintf(stderr, "%3d ", block[u*8+v]);
+	}
+	fprintf(stderr, "\n");
+      }
+      fprintf(stderr, "\n");
+    }
+  }
+
+  jpeg_finish_decompress(&cinfo_in);  // libjpeg -- finish with the input file
+  jpeg_destroy_decompress(&cinfo_in); //            and clean up
+
+  free(keyhash);		// free memory blocks (not actually needed, the OS will do it)
+  free(payload_bytes);
+}

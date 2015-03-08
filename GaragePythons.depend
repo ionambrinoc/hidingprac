@@ -1,0 +1,10 @@
+# depslib dependency file v1.0
+1425811863 source:/media/uDev/practicals/hidingprac/GaragePythons.c
+	<stdio.h>
+	<stdlib.h>
+	<string.h>
+	<jpeglib.h>
+	<jerror.h>
+	<openssl/sha.h>
+	<stdint.h>
+
