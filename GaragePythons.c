@@ -36,40 +36,40 @@ BitStream *createBitstream(char *payload, int payload_length) //will be helpful
 
 unsigned char nextBit(BitStream *bs) //iterator over bit stream
 {                                              /**endianness accounted for; treat as little endian*/
-    unsigned char bit = 0x00;
-    bit = (bs->data[bs->current_data_offset] >> bs->current_bit_offset) & 0x01;
+  unsigned char bit = 0x00;
+  bit = (bs->data[bs->current_data_offset] >> bs->current_bit_offset) & 0x01;
 
-    bs->current_bit_offset--;  /* move to next character */
-
-    if (bs->current_bit_offset < 0)
-    {
-        bs->current_bit_offset = 7;
-        bs->current_data_offset++;
-    }
-    return bit;
+  bs->current_bit_offset--;  /* move to next character */
+  if (bs->current_bit_offset < 0)
+  {
+      bs->current_bit_offset = 7;      bs->current_data_offset++;
+  }
+  return bit;
 }
 /**************************************************************************************************/
 
 /****TASK 2: Knuth shuffle for random permutations*************************************************/
 
-void shuffle(int *list, size_t len)
+void shuffle(int *list, size_t len) //Knuth shuffle
 {
-	int j; int *tmp;
-	while(len)
-	{
-		j = irand(len);
-		if (j != len - 1)
-		{	tmp = list[j];		list[j] = list[len - 1];	list[len - 1] = tmp;		}
-		len--;
-	}
+  int j; int *tmp;
+  while(len)
+  {
+    j = irand(len);
+    if (j != len - 1)
+    {
+      tmp = list[j];	list[j] = list[len - 1];    list[len - 1] = tmp;    }
+      len--;
+    }
 }
 
-int irand(int n)
+int irand(int n) //helper function for random number generation in required range.
 {
-	int r, rand_max = RAND_MAX - (RAND_MAX % n);  // reroll until r falls in a range that can be evenly
-	while ((r = rand()) >= rand_max); // distributed in n bins.  Unless n is comparable to RAND_MAX.
-	return r / (rand_max / n);
+  int r, rand_max = RAND_MAX - (RAND_MAX % n);  // reroll until r falls in a range that can 
+  while ((r = rand()) >= rand_max); // be evenly distributed in n bins.  Unless n 
+  return r / (rand_max / n);        // is comparable to RAND_MAX; hope it does not happen.
 }
+/**************************************************************************************************/
 void main(int argc, char **argv)
 {
   int mode;	// determines whether we are embedding or extracting
