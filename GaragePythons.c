@@ -12,7 +12,7 @@
 #define EMBED   1	// constants for the embed/extract mode
 #define EXTRACT 2
 
-/*****Helper methods that will be useful later*****************************************************/
+/*****Helper code that will be useful later********************************************************/
 
 /*****TASK 1: bit stream creation and manipulation*************************************************/
 typedef struct {
@@ -57,18 +57,18 @@ void shuffle(int *list, size_t len) //Knuth shuffle
   {
     j = irand(len);
     if (j != len - 1)
-    {
-      tmp = list[j];	list[j] = list[len - 1];    list[len - 1] = tmp;    }
-      len--;
-    }
+    { tmp = list[j];	list[j] = list[len - 1];    list[len - 1] = tmp;    }
+    len--;
+  }
 }
 
 int irand(int n) //helper function for random number generation in required range.
 {
-  int r, rand_max = RAND_MAX - (RAND_MAX % n);  // reroll until r falls in a range that can 
-  while ((r = rand()) >= rand_max); // be evenly distributed in n bins.  Unless n 
+  int r, rand_max = RAND_MAX - (RAND_MAX % n);  // reroll until r falls in a range that can
+  while ((r = rand()) >= rand_max); // be evenly distributed in n bins.  Unless n
   return r / (rand_max / n);        // is comparable to RAND_MAX; hope it does not happen.
 }
+
 /**************************************************************************************************/
 void main(int argc, char **argv)
 {
@@ -86,11 +86,11 @@ void main(int argc, char **argv)
   FILE *file_payload; // only used for embedding
 
   uint32_t payload_length; 	         /** to store the payload; changed for fixed 32 bit size*/
-  unsigned char *payload_bytes;
+  unsigned char *payload_bytes; BitStream* payloadStream;
   unsigned long BUFFSIZE=1024*1024; //1MB hardcoded max payload size, plenty
-
+  int changeCounter;                // count changed coefficients to compute efficiency
   char *key; unsigned char *keyhash;                     // the key string, and its SHA-1 hash
-  int* order;                                            // order to visit JPEG DCT coefficients
+  int* order;   short *coeffs; int k;      // order to visit JPEG DCT coefficients
 
   unsigned long blocks_high, blocks_wide;                    // useful properties of the image
   int block_y, block_x, u, v;					  // for the example code
@@ -129,27 +129,27 @@ void main(int argc, char **argv)
     memcpy(payload, &payload_length, sizeof(payload_length)); //make payload begin with length
     memcpy(payload+sizeof(payload_length), payload_bytes, strlen(payload_bytes));
 
-    BitStream* payloadStream =
-                createBitstream(payload, sizeof(payload_length)+strlen(payload_bytes));
+    payloadStream = createBitstream(payload, sizeof(payload_length)+strlen(payload_bytes));
+    free(payload);
 
     #ifdef DEBUG /**debug code; prints first eight bytes of payload, including payload length */
-    int i;
+    /*int i;
     for(i=0; i<64; i++) //print eight bytes
     {
         fprintf(stderr, "%d", nextBit(payloadStream));
         if (i%8==7 && i!=0) fprintf(stderr, "\n");
-    }
+    } */
     #endif
   }
 /**************************************************************************************************/
   if(mode==EMBED)   // open the input file
   {
     if((file_in=fopen(argv[2],"rb"))==NULL)
-    {
-      fprintf(stderr, "Unable to open cover file %s\n", argv[2]);      exit(1);
-    }
+    {   fprintf(stderr, "Unable to open cover file %s\n", argv[2]);      exit(1);    }
   }
-  else if(mode==EXTRACT)  {    file_in=stdin;  }
+  else if(mode==EXTRACT) file_in=stdin;
+
+/**************************************************************************************************/
 
   cinfo_in.err = jpeg_std_error(&jpegerr_in); // libjpeg -- create decompression object for reading
   jpeg_create_decompress(&cinfo_in);          //   the input file, using the standard error handler
@@ -165,87 +165,119 @@ void main(int argc, char **argv)
   // libjpeg -- read all the DCT coefficients into a memory structure
   DCT_blocks=jpeg_read_coefficients(&cinfo_in); //(memory handling is done by library)
 
-  // if embedding, set up the output file (we had to read the input first so
-  //                       that libjpeg can set up an output file with the exact same parameters)
-  if(mode==EMBED)
-  {
+  k=0;
+  if((coeffs=malloc(component->height_in_blocks*component->width_in_blocks*64*sizeof(short)))==NULL)
+     {    fprintf(stderr, "Memory allocation failed!\n");    exit(1);  }
+
+  for (block_y=0; block_y<component->height_in_blocks; block_y++)
+    for (block_x=0; block_x< component->width_in_blocks; block_x++)
+    {
+    // this is the magic code which accesses block (block_x,block_y) from luma component of image
+      JCOEFPTR block=(cinfo_in.mem->access_virt_barray)((j_common_ptr)&cinfo_in, DCT_blocks[0],
+					block_y, (JDIMENSION)1, FALSE)[0][block_x];
+      //JCOEFPTR can just be used as an array of 64 ints
+      for (u=0; u<8; u++)   for(v=0; v<8; v++)     coeffs[k++]=block[u*8+v];
+    }
+
+  if(mode==EMBED)  // if embedding, set up the output file (we had to read the input first so
+  {                // that libjpeg can set up an output file with the exact same parameters)
     cinfo_out.err = jpeg_std_error(&jpegerr_out); // libjpeg -- create compression
     jpeg_create_compress(&cinfo_out);             // object with default error handler
 
     // libjpeg -- copy all parameters from input to output object
     jpeg_copy_critical_parameters(&cinfo_in, &cinfo_out);
-
-    file_out=stdout;				  // libjpeg -- feed the stego file handle to
-    jpeg_stdio_dest(&cinfo_out, file_out);	  // the libjpeg compressor
-  }
+    file_out=stdout; jpeg_stdio_dest(&cinfo_out, file_out); // libjpeg - feed stego file handle to
+  }                                                         // the libjpeg compressor
 
   // At this point the input has been read, and an output is ready (if embedding)
   // We can modify the DCT_blocks if we are embedding, or just print the payload if extracting
 
 /***TASK 2****use the key to create a pseudorandom order to visit the coefficients*****************/
 
-  if((keyhash=malloc(20))==NULL) // enough space for a 160-bit hash
-  {    fprintf(stderr, "Memory allocation failed!\n");    exit(1);  }
+  if((keyhash=malloc(20))==NULL) // enough space for a 160-bit hash      //this code block is run in
+  {    fprintf(stderr, "Memory allocation failed!\n");    exit(1);  }    //both emb & ext modes
+
   SHA1(key, strlen(key), keyhash); // hash the key and then initialize the random
   srand(*(unsigned int *)keyhash); // number generator's state with the first 32 key bits
 
-  if((order=malloc(payload_length*8))==NULL) //times 8 since we need to visit for each bit, not byte
+  if((order=malloc(k*sizeof(int)))==NULL)
   {    fprintf(stderr, "Memory allocation failed!\n");    exit(1);  }
 
-  int j; for (j=0; j<payload_length*8; j++) order[j]=j; //initialize visiting order.
+  int j; for (j=0; j<k; j++) order[j]=j; //initialize visiting order.
   /** at this point, to run the Knuth shuffle on a list/array/something, call shuffle(arr, size); */
-  shuffle(order,payload_length);                        //now the order is pseudorandomly permuted.
-
+  shuffle(order,k);                        //now the order is pseudorandomly permuted.
 
 /**************************************************************************************************/
+
+
+
+
+
 
 /***TASK 3****embed the payload********************************************************************/
-/*
-  if(mode==EMBED)
-  {
 
+  if(mode==EMBED)
+  { /**DCT_blocks contains the JPEG coefficients; returns pointer to array of coefficients*/
+    changeCounter = 0; int nzcoeffs = 0; int orderLen = k;                    fprintf(stderr, "[");
+    if(k<payload_length) {fprintf(stderr, "Image too small; aborting. \n"); exit(1);}
+    k=0; unsigned char currentBit = nextBit(payloadStream); short success;
+
+    while(payloadStream->current_data_offset<payloadStream->data_size) /** loop through payload*/
+    {
+        success = 0;
+        if(orderLen<k)
+        {fprintf(stderr, "Too many zero coefficients; aborting. \n");    exit(1); }
+        if(coeffs[order[k]] !=0)  /** F5 embedding algorithm; skipping zero coefficients*/
+        {
+           if(coeffs[order[k]]>1)  { coeffs[order[k]]-=1; success=1; changeCounter++; }
+           if(coeffs[order[k]]<-1) { coeffs[order[k]]+=1; success=1; changeCounter++; }
+           if(coeffs[order[k]]%2==currentBit) success=1;
+           nzcoeffs++;
+        }
+        if(success) currentBit = nextBit(payloadStream);
+        k++; if(k%(orderLen/200)==0) fprintf(stderr,"-");
+    }
+
+    k=0;  //write everything back into the DCT coefficients of the JPEG image
+    for (block_y=0; block_y<component->height_in_blocks; block_y++)
+     for (block_x=0; block_x< component->width_in_blocks; block_x++)
+     {
+       JCOEFPTR block=(cinfo_in.mem->access_virt_barray)((j_common_ptr)&cinfo_in, DCT_blocks[0],
+	 				block_y, (JDIMENSION)1, FALSE)[0][block_x];
+       for (u=0; u<8; u++)   for(v=0; v<8; v++)     block[u*8+v]=coeffs[k++];
+     }
+
+    fprintf(stderr, "]\nOutput ready!\n");
+    fprintf(stderr, "Changed %d bits;", changeCounter);
+    fprintf(stderr, "Traversed %d nonzero coefficients\n", nzcoeffs);
+    double rate = (double)payload_length/(double)nzcoeffs;
+    double efficiency = (double)payload_length*8/(double)changeCounter;
+    fprintf(stderr, "Embedding Rate: %.4f bits per nonzero coefficient\n", rate);
+    fprintf(stderr, "Efficiency: %4f bits per changed coefficient\n", efficiency);
 
     jpeg_write_coefficients(&cinfo_out, DCT_blocks); // libjpeg -- write the coefficient block
-    jpeg_finish_compress(&cinfo_out);
+    jpeg_finish_compress(&cinfo_out); free(payloadStream); free(payload_bytes); //free memory
   }
-*/
+
 /**************************************************************************************************/
 
-/***TASK 4****extact the payload symbols and reconstruct the original bytes************************/
-/*
+/***TASK 4****extract the payload and reconstruct the original bytes*******************************/
   else if(mode==EXTRACT)
   {    // use something like printf("%s", payload_bytes);
-
-  }
-*/
-/**************************************************************************************************/
-/*
-  // example code: prints out all the DCT blocks to stderr, scanned in row order, but does not
-  // change them (if "embedding", the cover jpeg was also sent unchanged to stdout)
-
-  for (block_y=0; block_y<component->height_in_blocks; block_y++)
-  {
-    for (block_x=0; block_x< component->width_in_blocks; block_x++)
+    /**note that now coeffs contains all the image coefficients*/
+    int j; int lim=32;
+    for(j=0; j<lim; j++) //first extract payload length
     {
-      // this is the magic code which accesses block (block_x,block_y) from luma component of image
-      JCOEFPTR block=(cinfo_in.mem->access_virt_barray)((j_common_ptr)&cinfo_in, DCT_blocks[0],
-							block_y, (JDIMENSION)1, FALSE)[0][block_x];
-	//JCOEFPTR can just be used as an array of 64 ints
-      for (u=0; u<8; u++)
-      {
-	for(v=0; v<8; v++)
-        {
-	  fprintf(stderr, "%3d ", block[u*8+v]);
-	}
-	fprintf(stderr, "\n");
-      }
-      fprintf(stderr, "\n");
+        if (coeffs[order[j]]==0) lim++; //skip zero coefficients
+        else { fprintf(stderr, "%d ", coeffs[order[j]]); }
     }
   }
 
+/**************************************************************************************************/
+
   jpeg_finish_decompress(&cinfo_in);  // libjpeg -- finish with the input file
   jpeg_destroy_decompress(&cinfo_in); //            and clean up
-*/
-  free(keyhash);		// free memory blocks (not actually needed, the OS will do it)
-  free(payload_bytes);
+
+  free(keyhash); free(order); 	// free memory blocks (not actually needed,
+  free(coeffs);  //the OS will do it)
 }
