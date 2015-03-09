@@ -130,7 +130,6 @@ void main(int argc, char **argv)
     memcpy(payload+sizeof(payload_length), payload_bytes, strlen(payload_bytes));
 
     payloadStream = createBitstream(payload, sizeof(payload_length)+strlen(payload_bytes));
-    free(payload);
 
     #ifdef DEBUG /**debug code; prints first eight bytes of payload, including payload length */
     /*int i;
@@ -166,7 +165,7 @@ void main(int argc, char **argv)
   DCT_blocks=jpeg_read_coefficients(&cinfo_in); //(memory handling is done by library)
 
   k=0;
-  if((coeffs=malloc(component->height_in_blocks*component->width_in_blocks*64*sizeof(short)))==NULL)
+  if((coeffs=malloc(blocks_wide*blocks_high*64*sizeof(short)))==NULL)
      {    fprintf(stderr, "Memory allocation failed!\n");    exit(1);  }
 
   for (block_y=0; block_y<component->height_in_blocks; block_y++)
@@ -225,19 +224,21 @@ void main(int argc, char **argv)
     while(payloadStream->current_data_offset<payloadStream->data_size) /** loop through payload*/
     {
         success = 0;
-        if(orderLen<k)
-        {fprintf(stderr, "Too many zero coefficients; aborting. \n");    exit(1); }
+        if(orderLen<k)   {fprintf(stderr, "Too many zero coefficients; aborting. \n");   exit(1); }
         if(coeffs[order[k]] !=0)  /** F5 embedding algorithm; skipping zero coefficients*/
         {
-           if(coeffs[order[k]]>1)  { coeffs[order[k]]-=1; success=1; changeCounter++; }
-           if(coeffs[order[k]]<-1) { coeffs[order[k]]+=1; success=1; changeCounter++; }
-           if(coeffs[order[k]]%2==currentBit) success=1;
+           if((coeffs[order[k]]%2)*(coeffs[order[k]]%2)==currentBit) success=1;
+           else //problem: % can return negative; squaring is a cheap way to get absolute
+           {                                                 //value for 0s and 1s
+             if(coeffs[order[k]]>0)   coeffs[order[k]]-=1;
+             if(coeffs[order[k]]<0)   coeffs[order[k]]+=1;
+             success=(coeffs[order[k]]!=0); changeCounter++;
+           }
            nzcoeffs++;
         }
         if(success) currentBit = nextBit(payloadStream);
         k++; if(k%(orderLen/200)==0) fprintf(stderr,"-");
     }
-
     k=0;  //write everything back into the DCT coefficients of the JPEG image
     for (block_y=0; block_y<component->height_in_blocks; block_y++)
      for (block_x=0; block_x< component->width_in_blocks; block_x++)
@@ -247,8 +248,7 @@ void main(int argc, char **argv)
        for (u=0; u<8; u++)   for(v=0; v<8; v++)     block[u*8+v]=coeffs[k++];
      }
 
-    fprintf(stderr, "]\nOutput ready!\n");
-    fprintf(stderr, "Changed %d bits;", changeCounter);
+    fprintf(stderr, "]\nOutput ready!\n"); fprintf(stderr, "Changed %d bits;", changeCounter);
     fprintf(stderr, "Traversed %d nonzero coefficients\n", nzcoeffs);
     double rate = (double)payload_length/(double)nzcoeffs;
     double efficiency = (double)payload_length*8/(double)changeCounter;
@@ -256,28 +256,31 @@ void main(int argc, char **argv)
     fprintf(stderr, "Efficiency: %4f bits per changed coefficient\n", efficiency);
 
     jpeg_write_coefficients(&cinfo_out, DCT_blocks); // libjpeg -- write the coefficient block
-    jpeg_finish_compress(&cinfo_out); free(payloadStream); free(payload_bytes); //free memory
+    jpeg_finish_compress(&cinfo_out); free(payloadStream); free(payload_bytes);
   }
-
 /**************************************************************************************************/
-
 /***TASK 4****extract the payload and reconstruct the original bytes*******************************/
   else if(mode==EXTRACT)
   {    // use something like printf("%s", payload_bytes);
-    /**note that now coeffs contains all the image coefficients*/
-    int j; int lim=32;
+    /**note that now coeffs contains all the image coefficients; LSB extraction*/
+    int j; int lim=32;    int length = 0; int factor = 1;
+
     for(j=0; j<lim; j++) //first extract payload length
-    {
         if (coeffs[order[j]]==0) lim++; //skip zero coefficients
-        else { fprintf(stderr, "%d ", coeffs[order[j]]); }
-    }
+         else length +=((coeffs[order[j]]%2)*(coeffs[order[j]]%2)*(factor*=2));
+    int newlim = length+lim;
+    factor=256; char current = 0; //character we are constructing & factor to divide by to do that
+    for(j=lim; j<newlim; j++)
+       if (coeffs[order[j]]==0) newlim++; //skip zero coefficients
+         else
+         {
+           current +=((coeffs[order[j]]%2)*(coeffs[order[j]]%2)*(factor/=2));
+           if(factor==1) {printf("%c", current);current =0; factor=256;}//character read; go to next
+         }
+    printf("\n");
   }
-
 /**************************************************************************************************/
-
   jpeg_finish_decompress(&cinfo_in);  // libjpeg -- finish with the input file
-  jpeg_destroy_decompress(&cinfo_in); //            and clean up
-
-  free(keyhash); free(order); 	// free memory blocks (not actually needed,
-  free(coeffs);  //the OS will do it)
+  jpeg_destroy_decompress(&cinfo_in); //            and clean u
+  free(keyhash); free(order); free(coeffs);	// free memory blocks (not really needed, OS will do it)
 }
